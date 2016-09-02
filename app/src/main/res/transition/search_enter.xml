@@ -15,13 +15,45 @@
   limitations under the License.
   -->
 
-<fade
+<transitionSet
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:duration="@android:integer/config_mediumAnimTime"
-    android:interpolator="@android:interpolator/fast_out_slow_in">
+    xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <targets>
-        <target android:targetId="@android:id/navigationBarBackground"/>
-    </targets>
+    <transitionSet android:duration="400">
+        <targets>
+            <target android:targetId="@id/scrim" />
+        </targets>
+        <fade />
+        <transition
+            class="io.plaidapp.ui.transitions.CircularReveal"
+            app:centerOn="@id/searchback"
+            android:interpolator="@android:interpolator/linear_out_slow_in" />
+    </transitionSet>
 
-</fade>
+    <fade
+        android:duration="300"
+        android:interpolator="@android:interpolator/linear_out_slow_in">
+        <targets>
+            <target android:targetId="@id/search_background" />
+        </targets>
+    </fade>
+
+    <fade
+        android:startDelay="400"
+        android:duration="400"
+        android:interpolator="@android:interpolator/linear_out_slow_in">
+        <targets>
+            <target android:targetId="@id/search_view" />
+        </targets>
+    </fade>
+
+    <fade
+        android:duration="400"
+        android:interpolator="@android:interpolator/fast_out_slow_in">
+        <targets>
+            <target android:targetId="@android:id/navigationBarBackground" />
+        </targets>
+    </fade>
+
+</transitionSet>
+

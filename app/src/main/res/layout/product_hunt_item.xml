@@ -31,11 +31,12 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingStart="@dimen/padding_normal"
-        app:topPaddingHint="@dimen/padding_normal"
+        android:paddingTop="@dimen/padding_normal"
         android:paddingEnd="@dimen/padding_normal"
         android:paddingBottom="@dimen/spacing_micro"
         android:ellipsize="end"
         android:breakStrategy="simple"
+        app:maxLinesByHeight="true"
         style="@style/Widget.Plaid.TilePrimary" />
 
     <io.plaidapp.ui.widget.BaselineGridTextView
@@ -48,6 +49,7 @@
         android:paddingBottom="@dimen/spacing_micro"
         android:ellipsize="end"
         android:breakStrategy="simple"
+        app:maxLinesByHeight="true"
         style="@style/Widget.Plaid.TileSecondary" />
 
     <io.plaidapp.ui.widget.BaselineGridTextView

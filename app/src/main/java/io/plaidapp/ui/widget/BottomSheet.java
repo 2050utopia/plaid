@@ -32,8 +32,8 @@ import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import io.plaidapp.util.AnimUtils;
 import io.plaidapp.util.MathUtils;
@@ -66,10 +66,12 @@ public class BottomSheet extends FrameLayout {
     private List<Callbacks> callbacks;
     private int sheetExpandedTop;
     private int sheetBottom;
+    private int dismissOffset;
     private int nestedScrollInitialTop;
     private boolean settling = false;
     private boolean isNestedScrolling = false;
     private boolean initialHeightChecked = false;
+    private boolean hasInteractedWithSheet = false;
 
     public BottomSheet(Context context) {
         this(context, null, 0);
@@ -91,12 +93,12 @@ public class BottomSheet extends FrameLayout {
      */
     public static abstract class Callbacks {
         public void onSheetDismissed() { }
-        public void onSheetPositionChanged(int sheetTop) { }
+        public void onSheetPositionChanged(int sheetTop, boolean userInteracted) { }
     }
 
     public void registerCallback(Callbacks callback) {
         if (callbacks == null) {
-            callbacks = new ArrayList<>();
+            callbacks = new CopyOnWriteArrayList<>();
         }
         callbacks.add(callback);
     }
@@ -108,11 +110,11 @@ public class BottomSheet extends FrameLayout {
     }
 
     public void dismiss() {
-        animateSettle(true);
+        animateSettle(dismissOffset);
     }
 
     public void expand() {
-        animateSettle(false);
+        animateSettle(0);
     }
 
     public boolean isExpanded() {
@@ -126,6 +128,7 @@ public class BottomSheet extends FrameLayout {
         }
         sheet = child;
         sheetOffsetHelper = new ViewOffsetHelper(sheet);
+        sheet.addOnLayoutChangeListener(sheetLayout);
         // force the sheet contents to be gravity bottom. This ain't a top sheet.
         ((LayoutParams) params).gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
         super.addView(child, index, params);
@@ -133,6 +136,7 @@ public class BottomSheet extends FrameLayout {
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
+        hasInteractedWithSheet = true;
         if (isNestedScrolling) return false;    /* prefer nested scrolling to dragging */
 
         final int action = MotionEventCompat.getActionMasked(ev);
@@ -209,32 +213,12 @@ public class BottomSheet extends FrameLayout {
     public boolean onNestedFling(View target, float velocityX, float velocityY, boolean consumed) {
         if (velocityY <= -MIN_FLING_VELOCITY           /* flinging downward */
                 && !target.canScrollVertically(-1)) {  /* nested scrolling child can't scroll up */
-            animateSettle(true, computeSettleDuration(velocityY, true));
+            animateSettle(dismissOffset, computeSettleDuration(velocityY, true));
             return true;
         } else if (velocityY > 0 && !isExpanded()) {
-            animateSettle(false, computeSettleDuration(velocityY, false));
+            animateSettle(0, computeSettleDuration(velocityY, false));
         }
         return false;
-    }
-
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-        if (sheet != null && sheet.isLaidOut()) {
-            sheetExpandedTop = sheet.getTop();
-            sheetBottom = sheet.getBottom();
-            sheetOffsetHelper.onViewLayout();
-
-            if (!initialHeightChecked) {
-                // bottom sheet content should not initially be taller than the 16:9 keyline
-                final int minimumGap = sheet.getMeasuredWidth() / 16 * 9;
-                final int gap = getMeasuredHeight() - sheet.getMeasuredHeight();
-                if (gap < minimumGap) {
-                    sheetOffsetHelper.setTopAndBottomOffset(minimumGap - gap);
-                }
-                initialHeightChecked = true;
-            }
-        }
     }
 
     @Override
@@ -247,21 +231,27 @@ public class BottomSheet extends FrameLayout {
         return getVisibility() == VISIBLE && sheetDragHelper.isViewUnder(this, x, y);
     }
 
-    private void animateSettle(final boolean dismiss) {
-        animateSettle(dismiss, DEFAULT_SETTLE_DURATION);
+    private void animateSettle(int targetOffset) {
+        animateSettle(targetOffset, DEFAULT_SETTLE_DURATION);
     }
 
-    private void animateSettle(final boolean dismiss, long duration) {
-        if (settling) return;
+    private void animateSettle(int targetOffset, long duration) {
+        animateSettle(sheetOffsetHelper.getTopAndBottomOffset(), targetOffset, duration);
+    }
 
-        // animate the offset from expanded position
-        final int targetOffset = dismiss ? (sheetBottom - sheetExpandedTop) : 0;
-        if (sheetOffsetHelper.getTopAndBottomOffset() == targetOffset) return;
+    private void animateSettle(int initialOffset, final int targetOffset, long duration) {
+        if (settling) return;
+        if (sheetOffsetHelper.getTopAndBottomOffset() == targetOffset) {
+          if (targetOffset >= dismissOffset) {
+              dispatchDismissCallback();
+          }
+          return;
+        }
 
         settling = true;
         final ObjectAnimator settleAnim = ObjectAnimator.ofInt(sheetOffsetHelper,
                 ViewOffsetHelper.OFFSET_Y,
-                sheetOffsetHelper.getTopAndBottomOffset(),
+                initialOffset,
                 targetOffset);
         settleAnim.setDuration(duration);
         settleAnim.setInterpolator(AnimUtils.getFastOutSlowInInterpolator(getContext()));
@@ -269,7 +259,7 @@ public class BottomSheet extends FrameLayout {
             @Override
             public void onAnimationEnd(Animator animation) {
                 dispatchPositionChangedCallback();
-                if (dismiss) {
+                if (targetOffset == dismissOffset) {
                     dispatchDismissCallback();
                 }
                 settling = false;
@@ -279,7 +269,9 @@ public class BottomSheet extends FrameLayout {
             settleAnim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                 @Override
                 public void onAnimationUpdate(ValueAnimator animation) {
-                    dispatchPositionChangedCallback();
+                    if (animation.getAnimatedFraction() > 0f) {
+                        dispatchPositionChangedCallback();
+                    }
                 }
             });
         }
@@ -302,7 +294,7 @@ public class BottomSheet extends FrameLayout {
         return duration;
     }
 
-    private ViewDragHelper.Callback dragHelperCallbacks = new ViewDragHelper.Callback() {
+    private final ViewDragHelper.Callback dragHelperCallbacks = new ViewDragHelper.Callback() {
 
         @Override
         public boolean tryCaptureView(View child, int pointerId) {
@@ -335,10 +327,45 @@ public class BottomSheet extends FrameLayout {
         public void onViewReleased(View releasedChild, float velocityX, float velocityY) {
             // dismiss on downward fling, otherwise settle back to expanded position
             final boolean dismiss = velocityY >= MIN_FLING_VELOCITY;
-            animateSettle(dismiss, computeSettleDuration(velocityY, dismiss));
+            animateSettle(dismiss ? dismissOffset : 0, computeSettleDuration(velocityY, dismiss));
         }
 
     };
+
+    private final OnLayoutChangeListener sheetLayout = new OnLayoutChangeListener() {
+        @Override
+        public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                                   int oldLeft, int oldTop, int oldRight, int oldBottom) {
+            sheetExpandedTop = top;
+            sheetBottom = bottom;
+            dismissOffset = bottom - top;
+            sheetOffsetHelper.onViewLayout();
+
+            // modal bottom sheet content should not initially be taller than the 16:9 keyline
+            if (!initialHeightChecked) {
+                applySheetInitialHeightOffset(false, -1);
+                initialHeightChecked = true;
+            } else if (!hasInteractedWithSheet
+                    && (oldBottom - oldTop) != (bottom - top)) { /* sheet height changed */
+                /* if the sheet content's height changes before the user has interacted with it
+                   then consider this still in the 'initial' state and apply the height constraint,
+                   but in this case, animate to it */
+                applySheetInitialHeightOffset(true, oldTop - sheetExpandedTop);
+            }
+        }
+    };
+
+    private void applySheetInitialHeightOffset(boolean animateChange, int previousOffset) {
+        final int minimumGap = sheet.getMeasuredWidth() / 16 * 9;
+        if (sheet.getTop() < minimumGap) {
+            final int offset = minimumGap - sheet.getTop();
+            if (animateChange) {
+                animateSettle(previousOffset, offset, DEFAULT_SETTLE_DURATION);
+            } else {
+                sheetOffsetHelper.setTopAndBottomOffset(offset);
+            }
+        }
+    }
 
     private void dispatchDismissCallback() {
         if (callbacks != null && !callbacks.isEmpty()) {
@@ -351,7 +378,7 @@ public class BottomSheet extends FrameLayout {
     private void dispatchPositionChangedCallback() {
         if (callbacks != null && !callbacks.isEmpty()) {
             for (Callbacks callback : callbacks) {
-                callback.onSheetPositionChanged(sheet.getTop());
+                callback.onSheetPositionChanged(sheet.getTop(), hasInteractedWithSheet);
             }
         }
     }

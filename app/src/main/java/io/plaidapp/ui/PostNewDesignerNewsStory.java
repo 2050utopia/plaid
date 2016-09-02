@@ -34,8 +34,8 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
-import butterknife.Bind;
 import butterknife.BindDimen;
+import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
 import butterknife.OnEditorAction;
@@ -43,7 +43,8 @@ import butterknife.OnTextChanged;
 import io.plaidapp.R;
 import io.plaidapp.data.api.designernews.PostStoryService;
 import io.plaidapp.data.prefs.DesignerNewsPrefs;
-import io.plaidapp.ui.transitions.FabDialogMorphSetup;
+import io.plaidapp.ui.transitions.FabTransform;
+import io.plaidapp.ui.transitions.MorphTransform;
 import io.plaidapp.ui.widget.BottomSheet;
 import io.plaidapp.ui.widget.ObservableScrollView;
 import io.plaidapp.util.AnimUtils;
@@ -54,16 +55,16 @@ public class PostNewDesignerNewsStory extends Activity {
     public static final int RESULT_DRAG_DISMISSED = 3;
     public static final int RESULT_POSTING = 4;
 
-    @Bind(R.id.bottom_sheet) BottomSheet bottomSheet;
-    @Bind(R.id.bottom_sheet_content) ViewGroup bottomSheetContent;
-    @Bind(R.id.title) TextView sheetTitle;
-    @Bind(R.id.scroll_container) ObservableScrollView scrollContainer;
-    @Bind(R.id.new_story_title) EditText title;
-    @Bind(R.id.new_story_url_label) TextInputLayout urlLabel;
-    @Bind(R.id.new_story_url) EditText url;
-    @Bind(R.id.new_story_comment_label) TextInputLayout commentLabel;
-    @Bind(R.id.new_story_comment) EditText comment;
-    @Bind(R.id.new_story_post) Button post;
+    @BindView(R.id.bottom_sheet) BottomSheet bottomSheet;
+    @BindView(R.id.bottom_sheet_content) ViewGroup bottomSheetContent;
+    @BindView(R.id.title) TextView sheetTitle;
+    @BindView(R.id.scroll_container) ObservableScrollView scrollContainer;
+    @BindView(R.id.new_story_title) EditText title;
+    @BindView(R.id.new_story_url_label) TextInputLayout urlLabel;
+    @BindView(R.id.new_story_url) EditText url;
+    @BindView(R.id.new_story_comment_label) TextInputLayout commentLabel;
+    @BindView(R.id.new_story_comment) EditText comment;
+    @BindView(R.id.new_story_post) Button post;
     @BindDimen(R.dimen.z_app_bar) float appBarElevation;
 
     @Override
@@ -71,7 +72,10 @@ public class PostNewDesignerNewsStory extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_post_new_designer_news_story);
         ButterKnife.bind(this);
-        FabDialogMorphSetup.setupSharedEelementTransitions(this, bottomSheetContent, 0);
+        if (!FabTransform.setup(this, bottomSheetContent)) {
+            MorphTransform.setup(this, bottomSheetContent,
+                    ContextCompat.getColor(this, R.color.background_light), 0);
+        }
 
         bottomSheet.registerCallback(new BottomSheet.Callbacks() {
             @Override
@@ -205,9 +209,7 @@ public class PostNewDesignerNewsStory extends Activity {
             finishAfterTransition();
         } else {
             Intent login = new Intent(this, DesignerNewsLogin.class);
-            login.putExtra(FabDialogMorphSetup.EXTRA_SHARED_ELEMENT_START_COLOR,
-                    ContextCompat.getColor(this, R.color.designer_news));
-            login.putExtra(FabDialogMorphSetup.EXTRA_SHARED_ELEMENT_START_CORNER_RADIUS, 0);
+            MorphTransform.addExtras(login, ContextCompat.getColor(this, R.color.designer_news), 0);
             ActivityOptions options = ActivityOptions.makeSceneTransitionAnimation(
                     this, post, getString(R.string.transition_designer_news_login));
             startActivity(login, options.toBundle());

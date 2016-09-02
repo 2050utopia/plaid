@@ -21,44 +21,57 @@ import android.content.Context;
 import java.util.List;
 
 import io.plaidapp.data.PaginatedDataManager;
-import io.plaidapp.data.PlaidItem;
 import io.plaidapp.data.api.dribbble.model.Like;
-import retrofit.Callback;
-import retrofit.RetrofitError;
-import retrofit.client.Response;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
-public abstract class ShotLikesDataManager extends PaginatedDataManager {
+/**
+ * Loads the dribbble players who like a given shot.
+ */
+public abstract class ShotLikesDataManager extends PaginatedDataManager<List<Like>> {
 
     private final long shotId;
+    private Call shotLikesCall;
 
     public ShotLikesDataManager(Context context, long shotId) {
         super(context);
         this.shotId = shotId;
     }
 
-    public abstract void onLikesLoaded(List<Like> likes);
-
     @Override
-    public void onDataLoaded(List<? extends PlaidItem> data) {
-        /* no-op. Use #onLikesLoaded instead please. */
+    public void cancelLoading() {
+        if (shotLikesCall != null) shotLikesCall.cancel();
     }
 
     @Override
     protected void loadData(int page) {
-        getDribbbleApi().getShotLikes(shotId, page, DribbbleService.PER_PAGE_DEFAULT,
-                new Callback<List<Like>>() {
+        shotLikesCall = getDribbbleApi()
+                .getShotLikes(shotId, page, DribbbleService.PER_PAGE_DEFAULT);
+        shotLikesCall.enqueue(new Callback<List<Like>>() {
 
             @Override
-            public void success(List<Like> likes, Response response) {
-                loadFinished();
-                moreDataAvailable = likes.size() == DribbbleService.PER_PAGE_DEFAULT;
-                onLikesLoaded(likes);
+            public void onResponse(Call<List<Like>> call, Response<List<Like>> response) {
+                if (response.isSuccessful()) {
+                    loadFinished();
+                    final List<Like> likes = response.body();
+                    moreDataAvailable = likes.size() == DribbbleService.PER_PAGE_DEFAULT;
+                    onDataLoaded(likes);
+                    shotLikesCall = null;
+                } else {
+                    failure();
+                }
             }
 
             @Override
-            public void failure(RetrofitError error) {
+            public void onFailure(Call<List<Like>> call, Throwable t) {
+                failure();
+            }
+
+            private void failure() {
                 loadFinished();
                 moreDataAvailable = false;
+                shotLikesCall = null;
             }
         });
     }

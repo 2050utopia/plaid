@@ -174,6 +174,34 @@ public class ViewUtils {
         }
     };
 
+    public static final Property<TextView, Integer> TEXT_COLOR
+            = new AnimUtils.IntProperty<TextView>("textColor") {
+
+        @Override
+        public void setValue(TextView textView, int color) {
+            textView.setTextColor(color);
+        }
+
+        @Override
+        public Integer get(TextView textView) {
+            return textView.getCurrentTextColor();
+        }
+    };
+
+    public static final Property<Drawable, Integer> DRAWABLE_ALPHA
+            = new AnimUtils.IntProperty<Drawable>("alpha") {
+
+        @Override
+        public void setValue(Drawable drawable, int alpha) {
+            drawable.setAlpha(alpha);
+        }
+
+        @Override
+        public Integer get(Drawable drawable) {
+            return drawable.getAlpha();
+        }
+    };
+
     public static final Property<ImageView, Integer> IMAGE_ALPHA
             = new AnimUtils.IntProperty<ImageView>("imageAlpha") {
 

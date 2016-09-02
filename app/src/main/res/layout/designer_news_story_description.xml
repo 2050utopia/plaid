@@ -20,10 +20,12 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical">
-
-    <!-- in landscape orientation, include a toolbar instead of the collapsing title layout -->
-    <include layout="@layout/designer_news_story_title_toolbar" />
+    android:paddingTop="@dimen/designer_news_story_comments_vertical_padding"
+    android:elevation="@dimen/designer_news_story_comment_elevation"
+    android:background="@color/designer_news_story_comment_background"
+    android:orientation="vertical"
+    android:transitionGroup="false"
+    android:clipToPadding="false">
 
     <io.plaidapp.ui.widget.BaselineGridTextView
         android:id="@+id/story_comment"
@@ -45,19 +47,20 @@
         android:paddingTop="@dimen/spacing_large"
         android:paddingEnd="@dimen/padding_normal"
         android:paddingBottom="@dimen/padding_normal"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:clipToPadding="false">
 
         <Space
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <Button
+        <io.plaidapp.ui.widget.BaselineGridTextView
             android:id="@+id/story_vote_action"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="2"
-            android:drawableTop="@drawable/ic_upvote"
+            android:drawableTop="@drawable/asl_upvote"
             tools:text="33 likes"
             style="@style/Widget.Plaid.InlineActionButton" />
 
@@ -66,7 +69,7 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <Button
+        <io.plaidapp.ui.widget.BaselineGridTextView
             android:id="@+id/story_share_action"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -87,7 +90,8 @@
         android:layout_height="wrap_content"
         android:paddingEnd="@dimen/padding_normal"
         android:paddingBottom="@dimen/padding_normal"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:clipToPadding="false">
 
         <io.plaidapp.ui.widget.BaselineGridTextView
             android:id="@+id/story_poster_time"

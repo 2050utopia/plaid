@@ -37,34 +37,30 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import com.bumptech.glide.Glide;
-import com.google.gson.GsonBuilder;
 
 import java.text.NumberFormat;
 import java.util.List;
 
-import butterknife.Bind;
 import butterknife.BindInt;
+import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
 import io.plaidapp.R;
-import io.plaidapp.data.PlaidItem;
-import io.plaidapp.data.api.AuthInterceptor;
-import io.plaidapp.data.api.dribbble.DribbbleService;
 import io.plaidapp.data.api.dribbble.PlayerShotsDataManager;
+import io.plaidapp.data.api.dribbble.model.Shot;
 import io.plaidapp.data.api.dribbble.model.User;
 import io.plaidapp.data.pocket.PocketUtils;
 import io.plaidapp.data.prefs.DribbblePrefs;
 import io.plaidapp.ui.recyclerview.InfiniteScrollListener;
-import io.plaidapp.ui.transitions.FabDialogMorphSetup;
+import io.plaidapp.ui.recyclerview.SlideInItemAnimator;
+import io.plaidapp.ui.transitions.MorphTransform;
 import io.plaidapp.ui.widget.ElasticDragDismissFrameLayout;
 import io.plaidapp.util.DribbbleUtils;
 import io.plaidapp.util.ViewUtils;
 import io.plaidapp.util.glide.CircleTransform;
-import retrofit.Callback;
-import retrofit.RestAdapter;
-import retrofit.RetrofitError;
-import retrofit.client.Response;
-import retrofit.converter.GsonConverter;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 /**
  * A screen displaying a player's details and their shots.
@@ -85,17 +81,17 @@ public class PlayerActivity extends Activity {
     private Boolean following;
     private int followerCount;
 
-    @Bind(R.id.draggable_frame) ElasticDragDismissFrameLayout draggableFrame;
-    @Bind(R.id.player_description) ViewGroup playerDescription;
-    @Bind(R.id.avatar) ImageView avatar;
-    @Bind(R.id.player_name) TextView playerName;
-    @Bind(R.id.follow) Button follow;
-    @Bind(R.id.player_bio) TextView bio;
-    @Bind(R.id.shot_count) TextView shotCount;
-    @Bind(R.id.followers_count) TextView followersCount;
-    @Bind(R.id.likes_count) TextView likesCount;
-    @Bind(R.id.loading) ProgressBar loading;
-    @Bind(R.id.player_shots) RecyclerView shots;
+    @BindView(R.id.draggable_frame) ElasticDragDismissFrameLayout draggableFrame;
+    @BindView(R.id.player_description) ViewGroup playerDescription;
+    @BindView(R.id.avatar) ImageView avatar;
+    @BindView(R.id.player_name) TextView playerName;
+    @BindView(R.id.follow) Button follow;
+    @BindView(R.id.player_bio) TextView bio;
+    @BindView(R.id.shot_count) TextView shotCount;
+    @BindView(R.id.followers_count) TextView followersCount;
+    @BindView(R.id.likes_count) TextView likesCount;
+    @BindView(R.id.loading) ProgressBar loading;
+    @BindView(R.id.player_shots) RecyclerView shots;
     @BindInt(R.integer.num_columns) int columns;
 
     @Override
@@ -131,8 +127,10 @@ public class PlayerActivity extends Activity {
         draggableFrame.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override
             public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
-                ((ViewGroup.MarginLayoutParams) draggableFrame.getLayoutParams()).rightMargin
-                        += insets.getSystemWindowInsetRight(); // landscape
+                final ViewGroup.MarginLayoutParams lpFrame = (ViewGroup.MarginLayoutParams)
+                        draggableFrame.getLayoutParams();
+                lpFrame.leftMargin += insets.getSystemWindowInsetLeft();    // landscape
+                lpFrame.rightMargin += insets.getSystemWindowInsetRight();  // landscape
                 ((ViewGroup.MarginLayoutParams) avatar.getLayoutParams()).topMargin
                     += insets.getSystemWindowInsetTop();
                 ViewUtils.setPaddingTop(playerDescription, insets.getSystemWindowInsetTop());
@@ -142,6 +140,7 @@ public class PlayerActivity extends Activity {
                 return insets;
             }
         });
+        setExitSharedElementCallback(FeedAdapter.createSharedElementReenterCallback(this));
     }
 
     @Override
@@ -156,7 +155,47 @@ public class PlayerActivity extends Activity {
         super.onPause();
     }
 
+    @Override
+    protected void onDestroy() {
+        if (dataManager != null) {
+            dataManager.cancelLoading();
+        }
+        super.onDestroy();
+    }
+
+    @Override
+    public void onActivityReenter(int resultCode, Intent data) {
+        if (data == null || resultCode != RESULT_OK
+                || !data.hasExtra(DribbbleShot.RESULT_EXTRA_SHOT_ID)) return;
+
+        // When reentering, if the shared element is no longer on screen (e.g. after an
+        // orientation change) then scroll it into view.
+        final long sharedShotId = data.getLongExtra(DribbbleShot.RESULT_EXTRA_SHOT_ID, -1l);
+        if (sharedShotId != -1l                                             // returning from a shot
+                && adapter.getDataItemCount() > 0                           // grid populated
+                && shots.findViewHolderForItemId(sharedShotId) == null) {   // view not attached
+            final int position = adapter.getItemPosition(sharedShotId);
+            if (position == RecyclerView.NO_POSITION) return;
+
+            // delay the transition until our shared element is on-screen i.e. has been laid out
+            postponeEnterTransition();
+            shots.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                @Override
+                public void onLayoutChange(View v, int l, int t, int r, int b,
+                                           int oL, int oT, int oR, int oB) {
+                    shots.removeOnLayoutChangeListener(this);
+                    startPostponedEnterTransition();
+                }
+            });
+            shots.scrollToPosition(position);
+        }
+    }
+
     private void bindPlayer() {
+        if (player == null) {
+            return;
+        }
+
         final Resources res = getResources();
         final NumberFormat nf = NumberFormat.getInstance();
 
@@ -165,7 +204,7 @@ public class PlayerActivity extends Activity {
                 .placeholder(R.drawable.avatar_placeholder)
                 .transform(circleTransform)
                 .into(avatar);
-        playerName.setText(player.name);
+        playerName.setText(player.name.toLowerCase());
         if (!TextUtils.isEmpty(player.bio)) {
             DribbbleUtils.parseAndSetText(bio, player.bio);
         } else {
@@ -185,7 +224,7 @@ public class PlayerActivity extends Activity {
         // load the users shots
         dataManager = new PlayerShotsDataManager(this, player) {
             @Override
-            public void onDataLoaded(List<? extends PlaidItem> data) {
+            public void onDataLoaded(List<Shot> data) {
                 if (data != null && data.size() > 0) {
                     if (adapter.getDataItemCount() == 0) {
                         loading.setVisibility(View.GONE);
@@ -197,6 +236,7 @@ public class PlayerActivity extends Activity {
         };
         adapter = new FeedAdapter(this, dataManager, columns, PocketUtils.isPocketInstalled(this));
         shots.setAdapter(adapter);
+        shots.setItemAnimator(new SlideInItemAnimator());
         shots.setVisibility(View.VISIBLE);
         layoutManager = new GridLayoutManager(this, columns);
         layoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
@@ -245,21 +285,18 @@ public class PlayerActivity extends Activity {
                 ViewUtils.setPaddingTop(shots, playerDescription.getHeight() - follow.getHeight()
                         - ((ViewGroup.MarginLayoutParams) follow.getLayoutParams()).bottomMargin);
             } else {
-                dataManager.getDribbbleApi().following(player.id, new Callback<Void>() {
+                final Call<Void> followingCall = dataManager.getDribbbleApi().following(player.id);
+                followingCall.enqueue(new Callback<Void>() {
                     @Override
-                    public void success(Void voyd, Response response) {
-                        following = true;
+                    public void onResponse(Call<Void> call, Response<Void> response) {
+                        following = response.isSuccessful();
+                        if (!following) return;
                         TransitionManager.beginDelayedTransition(playerDescription);
                         follow.setText(R.string.following);
                         follow.setActivated(true);
                     }
 
-                    @Override
-                    public void failure(RetrofitError error) {
-                        if (error.getResponse() != null && error.getResponse().getStatus() == 404) {
-                            following = false;
-                        }
-                    }
+                    @Override public void onFailure(Call<Void> call, Throwable t) { }
                 });
             }
         }
@@ -272,39 +309,29 @@ public class PlayerActivity extends Activity {
     }
 
     private void loadPlayer(long userId) {
-        getDribbbleApi().getUser(userId, new Callback<User>() {
+        final Call<User> userCall = DribbblePrefs.get(this).getApi().getUser(userId);
+        userCall.enqueue(new Callback<User>() {
             @Override
-            public void success(User user, Response response) {
-                player = user;
+            public void onResponse(Call<User> call, Response<User> response) {
+                player = response.body();
                 bindPlayer();
             }
 
-            @Override public void failure(RetrofitError error) { }
+            @Override public void onFailure(Call<User> call, Throwable t) { }
         });
     }
 
     private void loadPlayer(String username) {
-        getDribbbleApi().getUser(username, new Callback<User>() {
+        final Call<User> userCall = DribbblePrefs.get(this).getApi().getUser(username);
+        userCall.enqueue(new Callback<User>() {
             @Override
-            public void success(User user, Response response) {
-                player = user;
+            public void onResponse(Call<User> call, Response<User> response) {
+                player = response.body();
                 bindPlayer();
             }
 
-            @Override public void failure(RetrofitError error) { }
+            @Override public void onFailure(Call<User> call, Throwable t) { }
         });
-    }
-
-    private DribbbleService getDribbbleApi() {
-        return new RestAdapter.Builder()
-                .setEndpoint(DribbbleService.ENDPOINT)
-                .setConverter(new GsonConverter(new GsonBuilder()
-                        .setDateFormat(DribbbleService.DATE_FORMAT)
-                        .create()))
-                .setRequestInterceptor(new AuthInterceptor(DribbblePrefs.get(this)
-                        .getAccessToken()))
-                .build()
-                .create((DribbbleService.class));
     }
 
     private void setFollowerCount(int count) {
@@ -318,12 +345,13 @@ public class PlayerActivity extends Activity {
 
     @OnClick(R.id.follow)
     /* package */ void follow() {
-        if (dataManager.getDribbblePrefs().isLoggedIn()) {
+        if (DribbblePrefs.get(this).isLoggedIn()) {
             if (following != null && following) {
-                dataManager.getDribbbleApi().unfollow(player.id, new Callback<Void>() {
-                    @Override public void success(Void voyd, Response response) { }
+                final Call<Void> unfollowCall = dataManager.getDribbbleApi().unfollow(player.id);
+                unfollowCall.enqueue(new Callback<Void>() {
+                    @Override public void onResponse(Call<Void> call, Response<Void> response) { }
 
-                    @Override public void failure(RetrofitError error) { }
+                    @Override public void onFailure(Call<Void> call, Throwable t) { }
                 });
                 following = false;
                 TransitionManager.beginDelayedTransition(playerDescription);
@@ -331,10 +359,11 @@ public class PlayerActivity extends Activity {
                 follow.setActivated(false);
                 setFollowerCount(followerCount - 1);
             } else {
-                dataManager.getDribbbleApi().follow(player.id, "", new Callback<Void>() {
-                    @Override public void success(Void voyd, Response response) { }
+                final Call<Void> followCall = dataManager.getDribbbleApi().follow(player.id);
+                followCall.enqueue(new Callback<Void>() {
+                    @Override public void onResponse(Call<Void> call, Response<Void> response) { }
 
-                    @Override public void failure(RetrofitError error) { }
+                    @Override public void onFailure(Call<Void> call, Throwable t) { }
                 });
                 following = true;
                 TransitionManager.beginDelayedTransition(playerDescription);
@@ -344,9 +373,8 @@ public class PlayerActivity extends Activity {
             }
         } else {
             Intent login = new Intent(this, DribbbleLogin.class);
-            login.putExtra(FabDialogMorphSetup.EXTRA_SHARED_ELEMENT_START_COLOR,
-                    ContextCompat.getColor(this, R.color.dribbble));
-            login.putExtra(FabDialogMorphSetup.EXTRA_SHARED_ELEMENT_START_CORNER_RADIUS,
+            MorphTransform.addExtras(login,
+                    ContextCompat.getColor(this, R.color.dribbble),
                     getResources().getDimensionPixelSize(R.dimen.dialog_corners));
             ActivityOptions options = ActivityOptions.makeSceneTransitionAnimation
                     (this, follow, getString(R.string.transition_dribbble_login));

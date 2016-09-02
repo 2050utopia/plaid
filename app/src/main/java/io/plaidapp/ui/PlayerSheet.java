@@ -16,16 +16,16 @@
 
 package io.plaidapp.ui;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
 import android.app.Activity;
 import android.app.ActivityOptions;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.drawable.AnimatedVectorDrawable;
 import android.os.Bundle;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
@@ -46,8 +46,8 @@ import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
 
-import butterknife.Bind;
 import butterknife.BindDimen;
+import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
 import io.plaidapp.R;
@@ -61,17 +61,19 @@ import io.plaidapp.data.api.dribbble.model.PlayerListable;
 import io.plaidapp.data.api.dribbble.model.Shot;
 import io.plaidapp.data.api.dribbble.model.User;
 import io.plaidapp.ui.recyclerview.InfiniteScrollListener;
+import io.plaidapp.ui.recyclerview.SlideInItemAnimator;
 import io.plaidapp.ui.widget.BottomSheet;
 import io.plaidapp.util.DribbbleUtils;
 import io.plaidapp.util.glide.CircleTransform;
 
-import static io.plaidapp.util.AnimUtils.getFastOutLinearInInterpolator;
 import static io.plaidapp.util.AnimUtils.getLinearOutSlowInInterpolator;
 
 public class PlayerSheet extends Activity {
 
     private static final int MODE_SHOT_LIKES = 1;
     private static final int MODE_FOLLOWERS = 2;
+    private static final int DISMISS_DOWN = 0;
+    private static final int DISMISS_CLOSE = 1;
     private static final String EXTRA_MODE = "EXTRA_MODE";
     private static final String EXTRA_SHOT = "EXTRA_SHOT";
     private static final String EXTRA_USER = "EXTRA_USER";
@@ -83,19 +85,19 @@ public class PlayerSheet extends Activity {
     })
     @interface PlayerSheetMode { }
 
-    @Bind(R.id.bottom_sheet) BottomSheet bottomSheet;
-    @Bind(R.id.bottom_sheet_content) ViewGroup content;
-    @Bind(R.id.title_bar) ViewGroup titleBar;
-    @Bind(R.id.close) ImageView close;
-    @Bind(R.id.title) TextView title;
-    @Bind(R.id.player_list) RecyclerView playerList;
+    @BindView(R.id.bottom_sheet) BottomSheet bottomSheet;
+    @BindView(R.id.bottom_sheet_content) ViewGroup content;
+    @BindView(R.id.title_bar) ViewGroup titleBar;
+    @BindView(R.id.close) ImageView close;
+    @BindView(R.id.title) TextView title;
+    @BindView(R.id.player_list) RecyclerView playerList;
     @BindDimen(R.dimen.large_avatar_size) int largeAvatarSize;
     private @Nullable Shot shot;
     private @Nullable User player;
     private PaginatedDataManager dataManager;
     private LinearLayoutManager layoutManager;
     private PlayerAdapter adapter;
-    private boolean showingClose = false;
+    private int dismissState = DISMISS_DOWN;
 
     public static void start(Activity launching, Shot shot) {
         Intent starter = new Intent(launching, PlayerSheet.class);
@@ -130,7 +132,7 @@ public class PlayerSheet extends Activity {
                         NumberFormat.getInstance().format(shot.likes_count)));
                 dataManager = new ShotLikesDataManager(this, shot.id) {
                     @Override
-                    public void onLikesLoaded(List<Like> likes) {
+                    public void onDataLoaded(List<Like> likes) {
                         adapter.addItems(likes);
                     }
                 };
@@ -143,7 +145,7 @@ public class PlayerSheet extends Activity {
                         NumberFormat.getInstance().format(player.followers_count)));
                 dataManager = new FollowersDataManager(this, player.id) {
                     @Override
-                    public void onFollowersLoaded(List<Follow> followers) {
+                    public void onDataLoaded(List<Follow> followers) {
                         adapter.addItems(followers);
                     }
                 };
@@ -159,17 +161,27 @@ public class PlayerSheet extends Activity {
             }
 
             @Override
-            public void onSheetPositionChanged(int sheetTop) {
+            public void onSheetPositionChanged(int sheetTop, boolean interacted) {
+                if (interacted && close.getVisibility() != View.VISIBLE) {
+                    close.setVisibility(View.VISIBLE);
+                    close.setAlpha(0f);
+                    close.animate()
+                            .alpha(1f)
+                            .setDuration(400L)
+                            .setInterpolator(getLinearOutSlowInInterpolator(PlayerSheet.this))
+                            .start();
+                }
                 if (sheetTop == 0) {
                     showClose();
                 } else {
-                    hideClose();
+                    showDown();
                 }
             }
         });
 
         layoutManager = new LinearLayoutManager(this);
         playerList.setLayoutManager(layoutManager);
+        playerList.setItemAnimator(new SlideInItemAnimator());
         adapter = new PlayerAdapter(this);
         dataManager.registerCallback(adapter);
         playerList.setAdapter(adapter);
@@ -180,8 +192,13 @@ public class PlayerSheet extends Activity {
             }
         });
         playerList.addOnScrollListener(titleElevation);
-        playerList.setHasFixedSize(true);
         dataManager.loadData(); // kick off initial load
+    }
+
+    @Override
+    protected void onDestroy() {
+        dataManager.cancelLoading();
+        super.onDestroy();
     }
 
     private RecyclerView.OnScrollListener titleElevation = new RecyclerView.OnScrollListener() {
@@ -193,37 +210,21 @@ public class PlayerSheet extends Activity {
     };
 
     private void showClose() {
-        if (showingClose) return;
-        close.animate()
-                .alpha(1f)
-                .scaleX(1f)
-                .scaleY(1f)
-                .setDuration(200L)
-                .setInterpolator(getLinearOutSlowInInterpolator(PlayerSheet.this))
-                .setListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationStart(Animator animation) {
-                        close.setVisibility(View.VISIBLE);
-                    }
-                });
-        showingClose = true;
+        if (dismissState == DISMISS_CLOSE) return;
+        dismissState = DISMISS_CLOSE;
+        final AnimatedVectorDrawable downToClose = (AnimatedVectorDrawable)
+                ContextCompat.getDrawable(this, R.drawable.avd_down_to_close);
+        close.setImageDrawable(downToClose);
+        downToClose.start();
     }
 
-    private void hideClose() {
-        if (!showingClose) return;
-        close.animate()
-                .alpha(0f)
-                .scaleX(0.8f)
-                .scaleY(0.8f)
-                .setDuration(200L)
-                .setInterpolator(getFastOutLinearInInterpolator(PlayerSheet.this))
-                .setListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
-                        close.setVisibility(View.INVISIBLE);
-                    }
-                });
-        showingClose = false;
+    private void showDown() {
+        if (dismissState == DISMISS_DOWN) return;
+        dismissState = DISMISS_DOWN;
+        final AnimatedVectorDrawable closeToDown = (AnimatedVectorDrawable)
+                ContextCompat.getDrawable(this, R.drawable.avd_close_to_down);
+        close.setImageDrawable(closeToDown);
+        closeToDown.start();
     }
 
     @OnClick({ R.id.bottom_sheet, R.id.close })
@@ -296,7 +297,7 @@ public class PlayerSheet extends Activity {
                     .placeholder(R.drawable.avatar_placeholder)
                     .override(largeAvatarSize, largeAvatarSize)
                     .into(holder.playerAvatar);
-            holder.playerName.setText(player.getPlayer().name);
+            holder.playerName.setText(player.getPlayer().name.toLowerCase());
             if (!TextUtils.isEmpty(player.getPlayer().bio)) {
                 DribbbleUtils.parseAndSetText(holder.playerBio, player.getPlayer().bio);
             } else if (!TextUtils.isEmpty(player.getPlayer().location)) {
@@ -305,7 +306,8 @@ public class PlayerSheet extends Activity {
             holder.timeAgo.setText(
                     DateUtils.getRelativeTimeSpanString(player.getDateCreated().getTime(),
                             System.currentTimeMillis(),
-                            DateUtils.SECOND_IN_MILLIS));
+                            DateUtils.SECOND_IN_MILLIS)
+                            .toString().toLowerCase());
         }
 
         @Override
@@ -362,10 +364,10 @@ public class PlayerSheet extends Activity {
 
     /* package */ static class PlayerViewHolder extends RecyclerView.ViewHolder {
 
-        @Bind(R.id.player_avatar) ImageView playerAvatar;
-        @Bind(R.id.player_name) TextView playerName;
-        @Bind(R.id.player_bio) TextView playerBio;
-        @Bind(R.id.time_ago) TextView timeAgo;
+        @BindView(R.id.player_avatar) ImageView playerAvatar;
+        @BindView(R.id.player_name) TextView playerName;
+        @BindView(R.id.player_bio) TextView playerBio;
+        @BindView(R.id.time_ago) TextView timeAgo;
 
         public PlayerViewHolder(View itemView) {
             super(itemView);
